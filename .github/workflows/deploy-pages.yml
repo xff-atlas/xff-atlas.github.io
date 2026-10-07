@@ -3,6 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -49,6 +51,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm --filter @workspace/xff-map-explorer run typecheck
+
+      - name: Refresh official cloud IP feeds
+        run: pnpm --filter @workspace/xff-map-explorer run refresh:data
 
       - name: Build static site
         run: pnpm --filter @workspace/xff-map-explorer run build
