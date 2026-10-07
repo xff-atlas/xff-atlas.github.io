@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "X-Forwarded-For Map Explorer"
+description = "A static, searchable map of sample data-center locations and IP details for exploring X-Forwarded-For paths. Built to export as static files for GitHub Pages."
+version = "1.0.0"
+id = "artifacts/xff-map-explorer"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18894
+
+[services.development]
+run = "pnpm --filter @workspace/xff-map-explorer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/xff-map-explorer", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/xff-map-explorer/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18894"
+BASE_PATH = "/"

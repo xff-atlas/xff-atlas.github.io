@@ -1,9 +1,11 @@
-# [Project name]
+# X-Forwarded-For Map Explorer
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A static, searchable map explorer for illustrative data-center locations and sample X-Forwarded-For/IP chains.
 
 ## Run & Operate
 
+- `pnpm --filter @workspace/xff-map-explorer run dev` — run the map explorer
+- `pnpm --filter @workspace/xff-map-explorer run build` — build its static site (requires `PORT` and `BASE_PATH`)
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
@@ -22,23 +24,30 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/xff-map-explorer/` — the static React/Vite app
+- `artifacts/xff-map-explorer/src/data/` — illustrative data-center and XFF sample records
+- `.github/workflows/deploy-pages.yml` — GitHub Pages build and deployment workflow
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The map explorer is a frontend-only static app; it does not require the API server or a database.
+- Sample IPs use documentation-only ranges and are not real data-center addresses or live IP geolocation.
+- GitHub Pages deploys the Vite build with a repository-aware base path.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Search and filter illustrative locations by data-center name, city, provider, IP, XFF value, region, and status.
+- Inspect location details and copy IP/XFF values from the map explorer.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Keep the site deployable as static files on GitHub Pages.
+- Prefer a minimal-code implementation with ready-to-use libraries and usable search/map interactions.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The GitHub Pages workflow deploys on pushes to `main`; choose GitHub Actions as the Pages source in repository settings.
+- Map tiles come from OpenStreetMap and require internet access; the rest of the app data is local.
 
 ## Pointers
 
