@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet';
 import ipaddr from 'ipaddr.js';
 import 'leaflet/dist/leaflet.css';
@@ -8,12 +8,15 @@ import {
   ChevronRight,
   Cloud,
   Copy,
+  Download,
   ExternalLink,
   Globe2,
   LocateFixed,
   MapPin,
   Minus,
   Plus,
+  Radar,
+  RefreshCw,
   Search,
   Server,
   X,
@@ -28,6 +31,8 @@ const families: Array<'All IP versions' | AddressFamily> = ['All IP versions', '
 const areas = ['All areas', 'Africa', 'Asia Pacific', 'Europe', 'Middle East', 'North America', 'South America', 'Other', 'Global'];
 const searchScopes = ['All', 'Location', 'Service', 'Network'] as const;
 type SearchScope = (typeof searchScopes)[number];
+const regionSortModes = ['Provider', 'Count', 'Name'] as const;
+type RegionSortMode = (typeof regionSortModes)[number];
 const providerColor: Record<CloudProvider, string> = {
   AWS: '#d98427',
   Azure: '#2875b7',
@@ -45,6 +50,12 @@ function regionId(provider: CloudProvider, code: string) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat().format(value);
+}
+
+function formatCoordinates(latitude: number, longitude: number) {
+  const latDirection = latitude >= 0 ? 'N' : 'S';
+  const lonDirection = longitude >= 0 ? 'E' : 'W';
+  return `${Math.abs(latitude).toFixed(2)}°${latDirection}, ${Math.abs(longitude).toFixed(2)}°${lonDirection}`;
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -127,13 +138,23 @@ function providerForBadge(provider: CloudProvider) {
 
 function MapViewport({ selected, resetKey }: { selected: CloudRegion | null; resetKey: number }) {
   const map = useMap();
+  const lastResetKey = useRef(resetKey);
   useEffect(() => {
+    const container = map.getContainer();
+    const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }));
+    observer.observe(container);
+    map.invalidateSize({ pan: false });
+    return () => observer.disconnect();
+  }, [map]);
+  useEffect(() => {
+    if (resetKey !== lastResetKey.current) {
+      lastResetKey.current = resetKey;
+      map.flyTo(BASE_CENTER, BASE_ZOOM, { duration: 0.5 });
+      return;
+    }
     if (selected?.latitude === null || selected?.latitude === undefined || selected.longitude === null) return;
     map.flyTo([selected.latitude, selected.longitude], Math.max(map.getZoom(), 4), { duration: 0.55 });
-  }, [map, selected?.id]);
-  useEffect(() => {
-    map.flyTo(BASE_CENTER, BASE_ZOOM, { duration: 0.5 });
-  }, [map, resetKey]);
+  }, [map, selected?.id, resetKey]);
   return null;
 }
 
@@ -177,6 +198,7 @@ function App() {
   const [providerFilter, setProviderFilter] = useState<(typeof providers)[number]>('All providers');
   const [familyFilter, setFamilyFilter] = useState<(typeof families)[number]>('All IP versions');
   const [areaFilter, setAreaFilter] = useState('All areas');
+  const [regionSort, setRegionSort] = useState<RegionSortMode>('Provider');
   const [selectedId, setSelectedId] = useState('');
   const [resetKey, setResetKey] = useState(0);
   const [rangeLimit, setRangeLimit] = useState(36);
@@ -246,13 +268,14 @@ function App() {
       return regionMatchesAllFields(region, text) ||
         matchingRanges.some((range) => rangeMatchesSearch(range, text, 'All', queryIps));
       })
-      .sort(
-        (a, b) =>
-          Number(a.latitude === null) - Number(b.latitude === null) ||
+      .sort((a, b) => {
+        if (regionSort === 'Count') return b.rangeCount - a.rangeCount || a.provider.localeCompare(b.provider);
+        if (regionSort === 'Name') return a.name.localeCompare(b.name) || a.provider.localeCompare(b.provider);
+        return Number(a.latitude === null) - Number(b.latitude === null) ||
           a.provider.localeCompare(b.provider) ||
-          a.name.localeCompare(b.name),
-      );
-  }, [feed, search, searchScope, providerFilter, familyFilter, areaFilter, queryIps, rangesByRegion]);
+          a.name.localeCompare(b.name);
+      });
+  }, [feed, search, searchScope, providerFilter, familyFilter, areaFilter, queryIps, rangesByRegion, regionSort]);
 
   const selectedRegion =
     filteredRegions.find((region) => region.id === selectedId) ?? filteredRegions[0] ?? null;
@@ -267,6 +290,22 @@ function App() {
     if (searchScope === 'All' && !queryIps.length && regionMatchesAllFields(selectedRegion, search)) return values;
     return values.filter((range) => rangeMatchesSearch(range, search, searchScope, queryIps));
   }, [selectedRegion, rangesByRegion, familyFilter, search, searchScope, queryIps]);
+
+  const selectedServiceTags = useMemo(() => {
+    if (!selectedRegion) return [];
+    const ranges = rangesByRegion.get(selectedRegion.id) ?? [];
+    return [...new Set(ranges
+      .filter((range) => familyFilter === 'All IP versions' || range.family === familyFilter)
+      .flatMap((range) => range.services))]
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, 12);
+  }, [selectedRegion?.id, rangesByRegion, familyFilter]);
+
+  const providerRangeCounts = useMemo(() => {
+    const counts = new Map<CloudProvider, number>([['AWS', 0], ['Azure', 0], ['Google Cloud', 0]]);
+    for (const range of feed?.ranges ?? []) counts.set(range.provider, (counts.get(range.provider) ?? 0) + 1);
+    return counts;
+  }, [feed]);
 
   useEffect(() => {
     if (selectedRegion && selectedRegion.id !== selectedId) setSelectedId(selectedRegion.id);
@@ -292,6 +331,17 @@ function App() {
       setCopyState('unavailable');
       window.setTimeout(() => setCopyState(''), 1800);
     }
+  };
+
+  const exportSelectedRanges = () => {
+    if (!selectedRegion || !feed) return;
+    const payload = JSON.stringify({ schemaVersion: feed.schemaVersion, fetchedAt: feed.fetchedAt, region: selectedRegion, ranges: selectedRanges }, null, 2);
+    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${selectedRegion.code.replaceAll(/[^a-z0-9-]/gi, '-')}-ranges.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const resetMap = () => setResetKey((value) => value + 1);
@@ -328,20 +378,34 @@ function App() {
             Snapshot {formatTimestamp(feed.fetchedAt)}
           </span>
         </div>
+        <div className="topbar-end">
+          <div className="topbar-counts" aria-label="Feed totals">
+            <span><strong>{formatNumber(feed.regions.length)}</strong> regions</span>
+            <i />
+            <span><strong>{formatNumber(feed.ranges.length)}</strong> prefixes</span>
+            <i />
+            <span><strong>{feed.sources.length}</strong> feeds</span>
+          </div>
+          <nav className="topbar-nav" aria-label="Explorer sections">
+            <a href="#explorer" aria-current="page"><Radar size={12} /> Explorer</a>
+            <a href="#data-sources" aria-label="Feed sources" title="Feed sources"><Cloud size={12} /><span>Feeds</span></a>
+          </nav>
+          <div className="topbar-actions">
+            <button type="button" aria-label="Export selected region ranges as JSON" title="Export selected region ranges as JSON" disabled={!selectedRegion} onClick={exportSelectedRanges}>
+              <Download size={13} />
+            </button>
+            <button type="button" aria-label="Reload feed snapshot" title="Reload feed snapshot" onClick={() => setReloadToken((value) => value + 1)}>
+              <RefreshCw size={13} />
+            </button>
+          </div>
+        </div>
       </header>
 
-      <main className="workspace">
+      <main className="workspace" id="explorer">
         <section className="workspace-heading">
           <div className="heading-copy">
             <div className="eyebrow"><Globe2 size={12} /> PROVIDER NETWORKS <ChevronRight size={11} /> PUBLISHED RANGES</div>
             <h1>Cloud range atlas</h1>
-          </div>
-          <div className="feed-summary" aria-label="Feed totals">
-            <div className="summary-item"><strong data-testid="text-region-count">{formatNumber(feed.regions.length)}</strong><span>regions</span></div>
-            <div className="summary-separator" />
-            <div className="summary-item"><strong data-testid="text-range-count">{formatNumber(feed.ranges.length)}</strong><span>prefixes</span></div>
-            <div className="summary-separator" />
-            <div className="summary-item"><strong>3</strong><span>official feeds</span></div>
           </div>
         </section>
 
@@ -373,9 +437,13 @@ function App() {
           <select aria-label="Filter by provider" data-testid="select-provider" value={providerFilter} onChange={(event) => setProviderFilter(event.target.value as (typeof providers)[number])}>
             {providers.map((provider) => <option value={provider} key={provider}>{provider}</option>)}
           </select>
-          <select aria-label="Filter by IP version" data-testid="select-family" value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value as (typeof families)[number])}>
-            {families.map((family) => <option value={family} key={family}>{family}</option>)}
-          </select>
+          <div className="family-scopes" role="group" aria-label="Filter by IP version" data-testid="select-family">
+            {families.map((family) => (
+              <button type="button" key={family} aria-pressed={familyFilter === family} onClick={() => setFamilyFilter(family)}>
+                {family === 'All IP versions' ? 'ALL' : family}
+              </button>
+            ))}
+          </div>
           <select aria-label="Filter by broad area" data-testid="select-area" value={areaFilter} onChange={(event) => setAreaFilter(event.target.value)}>
             {areas.map((area) => <option value={area} key={area}>{area}</option>)}
           </select>
@@ -384,7 +452,60 @@ function App() {
           </button>
         </section>
 
+        <div className="status-strip" role="status">
+          <span className="status-live"><i /> STATIC FEED SNAPSHOT</span>
+          <span>{feed.sources.length} official providers · updated {formatTimestamp(feed.fetchedAt)}</span>
+          {selectedRegion?.latitude !== null && selectedRegion?.latitude !== undefined && selectedRegion.longitude !== null && (
+            <span className="status-coordinates"><MapPin size={11} /> {formatCoordinates(selectedRegion.latitude, selectedRegion.longitude)}</span>
+          )}
+          <span className="status-results">{formatNumber(filteredRegions.length)} locations · {formatNumber(displayedRangeCount)} prefixes</span>
+        </div>
+
         <section className="map-layout">
+          <aside className="region-dock" aria-label="Cloud region results">
+            <div className="dock-heading">
+              <div><div className="dock-title">Region registry</div><div className="dock-subtitle">{formatNumber(filteredRegions.length)} matches · {formatNumber(displayedRangeCount)} prefixes</div></div>
+              <span className="dock-count" data-testid="text-filtered-regions">{filteredRegions.length}</span>
+            </div>
+            <div className="region-sort" role="group" aria-label="Sort regions">
+              <span>SORT</span>
+              {regionSortModes.map((mode) => (
+                <button type="button" key={mode} aria-pressed={regionSort === mode} onClick={() => setRegionSort(mode)}>
+                  {mode === 'Count' ? 'COUNT' : mode === 'Name' ? 'NAME' : 'CLOUD'}
+                </button>
+              ))}
+            </div>
+            <div className="region-list" aria-label="Filtered cloud regions" data-testid="list-cloud-regions">
+              {filteredRegions.length ? filteredRegions.map((region) => (
+                <button
+                  className={`region-row ${region.id === selectedRegion?.id ? 'selected' : ''}`}
+                  type="button"
+                  aria-pressed={region.id === selectedRegion?.id}
+                  key={region.id}
+                  data-testid={`button-region-${region.id}`}
+                  onClick={() => setSelectedId(region.id)}
+                >
+                  <span className="provider-mark" style={{ backgroundColor: providerColor[region.provider] }}>{providerShort[region.provider]}</span>
+                  <span className="region-row-copy">
+                    <span className="region-row-title">{region.name}</span>
+                    <span className="region-row-code">
+                      {getRegionCountry(region) && <span className="country-code-tag">{getRegionCountry(region)?.code}</span>}
+                      {region.area} · {region.code} · {region.provider}
+                    </span>
+                  </span>
+                  <span className="region-row-count">{formatNumber(region.rangeCount)}</span>
+                </button>
+              )) : (
+                <div className="empty-state" data-testid="empty-search-results">
+                  <Search size={18} />
+                  <strong>No published range matches</strong>
+                  <p>Try another location, service tag, IP, prefix, or filter.</p>
+                </div>
+              )}
+            </div>
+            <div className="dock-foot"><span className="tiny-dot" /> Official published allocations</div>
+          </aside>
+
           <div className="map-stage" aria-label="Cloud region map">
             <MapContainer className="map-canvas" center={BASE_CENTER} zoom={BASE_ZOOM} minZoom={1} maxZoom={12} zoomSnap={0.25} scrollWheelZoom keyboard zoomControl={false} worldCopyJump>
               <TileLayer
@@ -401,8 +522,8 @@ function App() {
                     center={[region.latitude, region.longitude]}
                     radius={selected ? 8 : Math.min(7, 3.5 + Math.log10(region.rangeCount + 1))}
                     pathOptions={{
-                      color: selected ? '#173b47' : '#ffffff',
-                      weight: selected ? 2.5 : 1.5,
+                      color: selected ? '#00dfb0' : '#ffffff',
+                      weight: selected ? 3 : 1.5,
                       fillColor: providerColor[region.provider],
                       fillOpacity: selected ? 1 : 0.84,
                     }}
@@ -417,47 +538,12 @@ function App() {
               <MapViewport selected={selectedRegion} resetKey={resetKey} />
               <MapControls onReset={resetMap} />
             </MapContainer>
-            <div className="map-top-label"><MapPin size={12} /> {formatNumber(filteredRegions.filter((region) => region.latitude !== null).length)} MAPPED REGIONS</div>
+            <div className="map-top-label"><span>RADAR-01</span><i />{selectedRegion?.name ?? 'GLOBAL VIEW'}<i />{formatNumber(filteredRegions.filter((region) => region.latitude !== null).length)} MAPPED</div>
             <div className="map-legend" aria-label="Provider legend">
               {(['AWS', 'Azure', 'Google Cloud'] as CloudProvider[]).map((provider) => (
-                <span className="legend-item" key={provider}><i style={{ backgroundColor: providerColor[provider] }} />{providerShort[provider]}</span>
+                <span className="legend-item" key={provider}><i style={{ backgroundColor: providerColor[provider] }} />{providerShort[provider]} ({formatNumber(providerRangeCounts.get(provider) ?? 0)})</span>
               ))}
             </div>
-            <aside className="region-dock" aria-label="Cloud region results">
-              <div className="dock-heading">
-                <div><div className="dock-title">Regions</div><div className="dock-subtitle">{formatNumber(filteredRegions.length)} matches · {formatNumber(displayedRangeCount)} ranges</div></div>
-                <span className="dock-count" data-testid="text-filtered-regions">{filteredRegions.length}</span>
-              </div>
-              <div className="region-list" aria-label="Filtered cloud regions" data-testid="list-cloud-regions">
-                {filteredRegions.length ? filteredRegions.map((region) => (
-                  <button
-                    className={`region-row ${region.id === selectedRegion?.id ? 'selected' : ''}`}
-                    type="button"
-                    aria-pressed={region.id === selectedRegion?.id}
-                    key={region.id}
-                    data-testid={`button-region-${region.id}`}
-                    onClick={() => setSelectedId(region.id)}
-                  >
-                    <span className="provider-mark" style={{ backgroundColor: providerColor[region.provider] }}>{providerShort[region.provider]}</span>
-                    <span className="region-row-copy">
-                      <span className="region-row-title">{region.name}</span>
-                      <span className="region-row-code">
-                        {getRegionCountry(region) && <span className="country-code-tag">{getRegionCountry(region)?.code}</span>}
-                        {region.area} · {region.code} · {region.provider}
-                      </span>
-                    </span>
-                    <span className="region-row-count">{formatNumber(region.rangeCount)}</span>
-                  </button>
-                )) : (
-                  <div className="empty-state" data-testid="empty-search-results">
-                    <Search size={18} />
-                    <strong>No published range matches</strong>
-                    <p>Try another location, service tag, IP, prefix, or filter.</p>
-                  </div>
-                )}
-              </div>
-              <div className="dock-foot"><span className="tiny-dot" /> Official published allocations</div>
-            </aside>
           </div>
 
           <aside className="detail-panel" aria-label="Selected cloud region details">
@@ -483,6 +569,24 @@ function App() {
                   <div><strong>{formatNumber(selectedRegion.ipv4Count)}</strong><span>IPv4</span></div>
                   <div><strong>{formatNumber(selectedRegion.ipv6Count)}</strong><span>IPv6</span></div>
                 </div>
+
+                {selectedServiceTags.length > 0 && (
+                  <div className="service-rail" aria-label="Filter by this region's service tags">
+                    <span className="service-rail-label">TAGS</span>
+                    <button type="button" aria-pressed={searchScope !== 'Service' || !selectedServiceTags.includes(searchInput)} onClick={() => { setSearchInput(''); setSearchScope('All'); }}>ALL</button>
+                    {selectedServiceTags.map((service) => (
+                      <button
+                        type="button"
+                        key={service}
+                        aria-pressed={searchScope === 'Service' && search === service.toLowerCase()}
+                        title={`Filter to ${service}`}
+                        onClick={() => { setSearchInput(service); setSearchScope('Service'); }}
+                      >
+                        {service}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 <div className="range-heading">
                   <div>
@@ -536,7 +640,7 @@ function App() {
           </aside>
         </section>
 
-        <div className="data-note" role="note" data-testid="notice-source-scope">
+        <div className="data-note" id="data-sources" role="note" data-testid="notice-source-scope">
           <span className="note-icon"><Cloud size={13} /></span>
           <span><strong>Published network ranges, not request logs.</strong> Search can match an IP from an X-Forwarded-For value to a provider CIDR; it cannot prove the request passed through that provider. Map points indicate approximate cloud-region areas, not data-center addresses.</span>
           <span className="source-links">

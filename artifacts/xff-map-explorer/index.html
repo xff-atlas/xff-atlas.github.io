@@ -3,19 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Forward Atlas — Cloud IP Range Explorer</title>
-    <meta name="description" content="Search official AWS, Azure, and Google Cloud IP ranges on a compact map. Match X-Forwarded-For IPs to published CIDRs." />
+    <title>Forward Atlas | Cloud IP Range &amp; Region Explorer</title>
+    <meta name="description" content="Search official AWS, Azure, and Google Cloud IP ranges by country, region, service, CIDR, or IP. Explore published prefixes on an interactive map." />
     <meta name="robots" content="index, follow" />
-    <meta property="og:title" content="Forward Atlas — Cloud IP Range Explorer" />
-    <meta property="og:description" content="Search official AWS, Azure, and Google Cloud IP ranges on a compact map. Match X-Forwarded-For IPs to published CIDRs." />
+    <link rel="canonical" href="https://xff-atlas.github.io/" />
+    <meta name="theme-color" content="#edf2f2" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:site_name" content="Forward Atlas" />
+    <meta property="og:title" content="Forward Atlas | Cloud IP Range &amp; Region Explorer" />
+    <meta property="og:description" content="Search official AWS, Azure, and Google Cloud IP ranges by country, region, service, CIDR, or IP." />
     <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Forward Atlas — Cloud IP Range Explorer" />
-    <meta name="twitter:description" content="Search official AWS, Azure, and Google Cloud IP ranges on a compact map. Match X-Forwarded-For IPs to published CIDRs." />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:url" content="https://xff-atlas.github.io/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Forward Atlas | Cloud IP Range &amp; Region Explorer" />
+    <meta name="twitter:description" content="Search official AWS, Azure, and Google Cloud IP ranges by country, region, service, CIDR, or IP." />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Forward Atlas",
+        "url": "https://xff-atlas.github.io/",
+        "description": "Search official AWS, Azure, and Google Cloud IP ranges by country, region, service, CIDR, or IP.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Any",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "Search published cloud IP ranges by provider, location, service, CIDR, or IP",
+          "Explore approximate cloud region locations on an interactive map",
+          "Inspect official AWS, Azure, and Google Cloud network allocations"
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>Forward Atlas is an interactive explorer for official AWS, Azure, and Google Cloud IP ranges. Enable JavaScript to search and explore the map.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

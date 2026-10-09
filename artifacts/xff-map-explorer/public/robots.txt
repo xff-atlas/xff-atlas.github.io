@@ -1,2 +1,3 @@
 User-agent: *
 Allow: /
+Sitemap: https://xff-atlas.github.io/sitemap.xml
