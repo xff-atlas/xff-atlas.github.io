@@ -18,6 +18,7 @@ import {
   Server,
   X,
 } from 'lucide-react';
+import { getRegionCountry, supportedCountryCodes } from './data/cloud-feed';
 import type { AddressFamily, CloudFeed, CloudProvider, CloudRange, CloudRegion } from './data/cloud-feed';
 
 const BASE_CENTER: [number, number] = [22, 8];
@@ -25,6 +26,8 @@ const BASE_ZOOM = 1.5;
 const providers: Array<'All providers' | CloudProvider> = ['All providers', 'AWS', 'Azure', 'Google Cloud'];
 const families: Array<'All IP versions' | AddressFamily> = ['All IP versions', 'IPv4', 'IPv6'];
 const areas = ['All areas', 'Africa', 'Asia Pacific', 'Europe', 'Middle East', 'North America', 'South America', 'Other', 'Global'];
+const searchScopes = ['All', 'Location', 'Service', 'Network'] as const;
+type SearchScope = (typeof searchScopes)[number];
 const providerColor: Record<CloudProvider, string> = {
   AWS: '#d98427',
   Azure: '#2875b7',
@@ -83,6 +86,41 @@ function addressMatchesRange(addressValue: string, cidr: string) {
   }
 }
 
+function regionMatchesLocation(region: CloudRegion, text: string) {
+  const country = getRegionCountry(region);
+  if (isCountryCodeQuery(text)) {
+    return country?.code === text.toUpperCase();
+  }
+  return `${region.name} ${region.code} ${region.area} ${country?.name ?? ''} ${country?.code ?? ''}`
+    .toLowerCase()
+    .includes(text);
+}
+
+function regionMatchesAllFields(region: CloudRegion, text: string) {
+  const country = getRegionCountry(region);
+  if (isCountryCodeQuery(text)) {
+    return country?.code === text.toUpperCase();
+  }
+  return `${region.name} ${region.code} ${region.provider} ${region.area} ${country?.name ?? ''} ${country?.code ?? ''}`
+    .toLowerCase()
+    .includes(text);
+}
+
+function isCountryCodeQuery(text: string) {
+  return text.length === 2 && supportedCountryCodes.has(text.toUpperCase());
+}
+
+function rangeMatchesSearch(range: CloudRange, text: string, scope: SearchScope, queryIps: string[]) {
+  if (scope === 'Network' || (scope === 'All' && queryIps.length > 0)) {
+    return queryIps.length
+      ? queryIps.some((ip) => addressMatchesRange(ip, range.cidr))
+      : range.cidr.toLowerCase().includes(text);
+  }
+  if (scope === 'Service') return range.services.some((service) => service.toLowerCase().includes(text));
+  return range.cidr.toLowerCase().includes(text) ||
+    range.services.some((service) => service.toLowerCase().includes(text));
+}
+
 function providerForBadge(provider: CloudProvider) {
   return `provider-${providerShort[provider].toLowerCase()}`;
 }
@@ -135,6 +173,7 @@ function App() {
   const [reloadToken, setReloadToken] = useState(0);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [searchScope, setSearchScope] = useState<SearchScope>('All');
   const [providerFilter, setProviderFilter] = useState<(typeof providers)[number]>('All providers');
   const [familyFilter, setFamilyFilter] = useState<(typeof families)[number]>('All IP versions');
   const [areaFilter, setAreaFilter] = useState('All areas');
@@ -193,21 +232,19 @@ function App() {
       if (!text) return true;
 
       const ranges = rangesByRegion.get(region.id) ?? [];
-      if (queryIps.length) {
-        return ranges.some((range) => {
-          if (familyFilter !== 'All IP versions' && range.family !== familyFilter) return false;
-          return queryIps.some((ip) => addressMatchesRange(ip, range.cidr));
-        });
-      }
-
-      const regionText = `${region.name} ${region.code} ${region.provider} ${region.area}`.toLowerCase();
-      if (regionText.includes(text)) return true;
-        return ranges.some(
-        (range) =>
-          (familyFilter === 'All IP versions' || range.family === familyFilter) &&
-          (range.cidr.toLowerCase().includes(text) ||
-            range.services.some((service) => service.toLowerCase().includes(text))),
+      const matchingRanges = ranges.filter(
+        (range) => familyFilter === 'All IP versions' || range.family === familyFilter,
       );
+      if (searchScope === 'All' && isCountryCodeQuery(text)) return regionMatchesAllFields(region, text);
+      if (searchScope === 'Location') return regionMatchesLocation(region, text);
+      if (searchScope === 'Service' || searchScope === 'Network') {
+        return matchingRanges.some((range) => rangeMatchesSearch(range, text, searchScope, queryIps));
+      }
+      if (queryIps.length) {
+        return matchingRanges.some((range) => rangeMatchesSearch(range, text, 'Network', queryIps));
+      }
+      return regionMatchesAllFields(region, text) ||
+        matchingRanges.some((range) => rangeMatchesSearch(range, text, 'All', queryIps));
       })
       .sort(
         (a, b) =>
@@ -215,7 +252,7 @@ function App() {
           a.provider.localeCompare(b.provider) ||
           a.name.localeCompare(b.name),
       );
-  }, [feed, search, providerFilter, familyFilter, areaFilter, queryIps, rangesByRegion]);
+  }, [feed, search, searchScope, providerFilter, familyFilter, areaFilter, queryIps, rangesByRegion]);
 
   const selectedRegion =
     filteredRegions.find((region) => region.id === selectedId) ?? filteredRegions[0] ?? null;
@@ -226,21 +263,10 @@ function App() {
       values = values.filter((range) => range.family === familyFilter);
     }
     if (!search) return values;
-    if (queryIps.length) {
-      return values.filter((range) => queryIps.some((ip) => addressMatchesRange(ip, range.cidr)));
-    }
-    const text = search;
-    const matchesRegion =
-      `${selectedRegion.name} ${selectedRegion.code} ${selectedRegion.provider} ${selectedRegion.area}`
-        .toLowerCase()
-        .includes(text);
-    if (matchesRegion) return values;
-    return values.filter(
-      (range) =>
-        range.cidr.toLowerCase().includes(text) ||
-        range.services.some((service) => service.toLowerCase().includes(text)),
-    );
-  }, [selectedRegion, rangesByRegion, familyFilter, search, queryIps]);
+    if (searchScope === 'Location') return values;
+    if (searchScope === 'All' && !queryIps.length && regionMatchesAllFields(selectedRegion, search)) return values;
+    return values.filter((range) => rangeMatchesSearch(range, search, searchScope, queryIps));
+  }, [selectedRegion, rangesByRegion, familyFilter, search, searchScope, queryIps]);
 
   useEffect(() => {
     if (selectedRegion && selectedRegion.id !== selectedId) setSelectedId(selectedRegion.id);
@@ -248,7 +274,7 @@ function App() {
 
   useEffect(() => {
     setRangeLimit(36);
-  }, [selectedRegion?.id, search, familyFilter]);
+  }, [selectedRegion?.id, search, searchScope, familyFilter]);
 
   const visibleRanges = selectedRanges.slice(0, rangeLimit);
   const displayedRangeCount = filteredRegions.reduce((sum, region) => {
@@ -323,14 +349,27 @@ function App() {
           <label className="searchbox">
             <Search size={15} aria-hidden="true" />
             <input
-              aria-label="Search by X-Forwarded-For IP, CIDR, region, or service"
+              aria-label="Search cloud locations and ISO country codes, service tags, IP addresses, or CIDR prefixes"
               data-testid="input-search"
-              placeholder="Paste an XFF IP, CIDR, region or service…"
+              placeholder="Search DE, IL, place, region, service tag, IP, or CIDR…"
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
             />
             {searchInput && <button type="button" className="clear-search" aria-label="Clear search" data-testid="button-clear-search" onClick={() => setSearchInput('')}><X size={14} /></button>}
           </label>
+          <div className="search-scopes" role="group" aria-label="Search within">
+            {searchScopes.map((scope) => (
+              <button
+                type="button"
+                key={scope}
+                aria-pressed={searchScope === scope}
+                title={`Search ${scope === 'All' ? 'all fields' : `${scope.toLowerCase()}s only`}`}
+                onClick={() => setSearchScope(scope)}
+              >
+                {scope}
+              </button>
+            ))}
+          </div>
           <select aria-label="Filter by provider" data-testid="select-provider" value={providerFilter} onChange={(event) => setProviderFilter(event.target.value as (typeof providers)[number])}>
             {providers.map((provider) => <option value={provider} key={provider}>{provider}</option>)}
           </select>
@@ -340,7 +379,7 @@ function App() {
           <select aria-label="Filter by broad area" data-testid="select-area" value={areaFilter} onChange={(event) => setAreaFilter(event.target.value)}>
             {areas.map((area) => <option value={area} key={area}>{area}</option>)}
           </select>
-          <button type="button" className="reset-button" data-testid="button-reset-filters" onClick={() => { setSearchInput(''); setProviderFilter('All providers'); setFamilyFilter('All IP versions'); setAreaFilter('All areas'); resetMap(); }}>
+          <button type="button" className="reset-button" data-testid="button-reset-filters" onClick={() => { setSearchInput(''); setSearchScope('All'); setProviderFilter('All providers'); setFamilyFilter('All IP versions'); setAreaFilter('All areas'); resetMap(); }}>
             Reset
           </button>
         </section>
@@ -354,6 +393,7 @@ function App() {
               />
               {filteredRegions.map((region) => {
                 if (region.latitude === null || region.longitude === null) return null;
+                const country = getRegionCountry(region);
                 const selected = region.id === selectedRegion?.id;
                 return (
                   <CircleMarker
@@ -369,7 +409,7 @@ function App() {
                     eventHandlers={{ click: () => setSelectedId(region.id) }}
                   >
                     <Tooltip direction="top" offset={[0, -5]}>
-                      <strong>{region.name}</strong><br />{providerShort[region.provider]} · {region.code}<br />{formatNumber(region.rangeCount)} ranges
+                      <strong>{region.name}</strong><br />{country ? `${country.name} (${country.code})` : 'Country not mapped'}<br />{providerShort[region.provider]} · {region.code}<br />{formatNumber(region.rangeCount)} ranges
                     </Tooltip>
                   </CircleMarker>
                 );
@@ -401,7 +441,10 @@ function App() {
                     <span className="provider-mark" style={{ backgroundColor: providerColor[region.provider] }}>{providerShort[region.provider]}</span>
                     <span className="region-row-copy">
                       <span className="region-row-title">{region.name}</span>
-                      <span className="region-row-code">{region.code} · {region.provider}</span>
+                      <span className="region-row-code">
+                        {getRegionCountry(region) && <span className="country-code-tag">{getRegionCountry(region)?.code}</span>}
+                        {region.area} · {region.code} · {region.provider}
+                      </span>
                     </span>
                     <span className="region-row-count">{formatNumber(region.rangeCount)}</span>
                   </button>
@@ -409,7 +452,7 @@ function App() {
                   <div className="empty-state" data-testid="empty-search-results">
                     <Search size={18} />
                     <strong>No published range matches</strong>
-                    <p>Try a different IP, prefix, region, or filter.</p>
+                    <p>Try another location, service tag, IP, prefix, or filter.</p>
                   </div>
                 )}
               </div>
@@ -423,13 +466,13 @@ function App() {
                 <div className="detail-overview">
                   <div className="detail-kicker">
                     <span className={`provider-tag ${providerForBadge(selectedRegion.provider)}`}>{selectedRegion.provider}</span>
-                    <span className="region-code">{selectedRegion.code}</span>
+                    <span className="region-code">{getRegionCountry(selectedRegion)?.code ? `${getRegionCountry(selectedRegion)?.code} · ` : ''}{selectedRegion.code}</span>
                   </div>
                   <h2 data-testid="text-selected-region">{selectedRegion.name}</h2>
                   <div className="detail-location">
                     {selectedRegion.latitude === null
                       ? 'No mapped coordinates'
-                      : `${selectedRegion.area} · approximate region area`}
+                      : `${getRegionCountry(selectedRegion)?.name ?? 'Country not mapped'} · ${selectedRegion.area} · approximate region area`}
                   </div>
                   <span className="detail-area"><MapPin size={11} /> {selectedRegion.area}</span>
                 </div>
@@ -460,7 +503,9 @@ function App() {
                         <span className="prefix-cidr">{range.cidr}</span>
                         <span className="prefix-meta">
                           <span className={`family-tag ${range.family.toLowerCase()}`}>{range.family}</span>
-                          <span title={range.services.join(', ')}>{range.services.slice(0, 2).join(', ')}{range.services.length > 2 ? ` +${range.services.length - 2}` : ''}</span>
+                          <span title={`Provider service tags: ${range.services.join(', ')}. These are source identifiers, not service descriptions.`}>
+                            {range.services.slice(0, 2).join(', ')}{range.services.length > 2 ? ` +${range.services.length - 2}` : ''}
+                          </span>
                         </span>
                       </div>
                       <button type="button" className="copy-button" aria-label={`Copy ${range.cidr}`} data-testid={`button-copy-prefix-${range.cidr.replaceAll(/[/:]/g, '-')}`} onClick={() => copyValue(range.cidr, range.cidr)}>

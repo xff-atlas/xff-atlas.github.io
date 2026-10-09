@@ -4,6 +4,19 @@ A compact, static map for searching official AWS, Azure, and Google Cloud public
 
 This app does not collect XFF headers or request logs. Provider feeds describe published network allocations, not observed traffic; region markers show approximate areas, not data-center coordinates.
 
+## Search locations, networks, and service tags
+
+Choose a search scope beside the search field:
+
+- **All** searches region names and codes, broad areas, provider names, service tags, CIDR prefixes, and IP addresses. IP input may contain comma-, space-, or semicolon-separated addresses, such as an X-Forwarded-For chain.
+- **Location** searches the mapped country name or ISO 3166-1 alpha-2 code, provider region name/code, and broad area. For example, try `Germany`, `DE`, `Israel`, `IL`, `London`, `North America`, `eastus`, or `eu-west-2`. Recognized two-letter country codes match exactly, so `DE` will not match a place like Delhi.
+- **Service** searches provider-published service-tag names, such as `AzureFrontDoor` or `CLOUDFRONT`.
+- **Network** searches CIDR prefixes or IP addresses contained by a published prefix.
+
+Provider and IP-version filters work alongside every search scope. Country names/codes are best-effort mappings from known provider region locations, not fields in the feeds; unmapped and global regions have no country badge. The source feeds do not provide county data, and map locations must not be interpreted as precise addresses.
+
+Service tags are identifiers published by each cloud provider, not a shared taxonomy or descriptive product catalog. A tag tooltip shows the raw provider value; this explorer does not infer what a tag means beyond its source label. See the linked official feeds below for provider-specific definitions and current allocations.
+
 ## Run locally
 
 From the workspace root:

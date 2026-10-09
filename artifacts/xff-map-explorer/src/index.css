@@ -112,6 +112,10 @@ h1 { margin: 0; color: #1b333e; font-size: 20px; line-height: 1.15; font-weight:
 .searchbox input::placeholder { color: #94a2a7; }
 .clear-search { display: grid; place-items: center; flex: 0 0 auto; padding: 3px; color: #809099; background: transparent; border: 0; border-radius: 4px; }
 .clear-search:hover { color: #304b58; background: #eef3f3; }
+.search-scopes { height: 34px; flex: 0 0 auto; display: flex; align-items: center; gap: 2px; padding: 2px; background: #e5ecec; border: 1px solid #d5e0e1; border-radius: 7px; }
+.search-scopes button { min-width: 49px; height: 28px; padding: 0 8px; color: #657a81; background: transparent; border: 0; border-radius: 5px; font-size: 9px; font-weight: 700; }
+.search-scopes button:hover { color: #294b56; background: rgba(255, 255, 255, .65); }
+.search-scopes button[aria-pressed="true"] { color: #244c3c; background: #fff; box-shadow: 0 1px 3px rgba(27, 55, 64, .12); }
 .search-toolbar select {
   height: 36px;
   min-width: 106px;
@@ -249,6 +253,7 @@ h1 { margin: 0; color: #1b333e; font-size: 20px; line-height: 1.15; font-weight:
 .region-row-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .region-row-title { overflow: hidden; color: #38535e; font-size: 10px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .region-row-code { overflow: hidden; color: #8a989d; font: 8px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.country-code-tag { display: inline-grid; min-width: 20px; height: 14px; place-items: center; margin-right: 4px; padding: 0 3px; color: #285945; background: #e2f0e7; border: 1px solid #c9dfd1; border-radius: 3px; font-size: 8px; font-weight: 700; }
 .region-row-count { color: #72878e; font: 8px var(--font-mono); white-space: nowrap; }
 .dock-foot { min-height: 29px; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 0 10px; color: #85949a; background: #fbfdfd; border-top: 1px solid #e9eff0; font-size: 8px; }
 .tiny-dot { width: 5px; height: 5px; border-radius: 50%; background: #5b9b79; }
@@ -353,6 +358,8 @@ h1 { margin: 0; color: #1b333e; font-size: 20px; line-height: 1.15; font-weight:
   .summary-separator { height: 15px; }
   .search-toolbar { flex-wrap: wrap; }
   .searchbox { flex-basis: calc(100% - 1px); }
+  .search-scopes { flex: 1 1 100%; }
+  .search-scopes button { flex: 1 1 0; }
   .search-toolbar select { flex: 1 1 110px; min-width: 0; }
   .reset-button { flex: 0 0 auto; }
   .map-layout { display: flex; height: auto; min-height: 0; flex-direction: column; gap: 8px; }
